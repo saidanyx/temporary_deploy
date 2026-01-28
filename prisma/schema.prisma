@@ -1,0 +1,366 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -------------------- Existing enums --------------------
+
+enum Provider {
+  CRYPTOBOT
+  XROCKET
+  ADMIN
+}
+
+enum DepositStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum LedgerType {
+  DEPOSIT
+  BET
+  WIN
+  REFUND
+  REFERRAL
+  CASHBACK
+  ADJUST
+  WITHDRAW
+  BONUS
+}
+
+enum RefMode {
+  FIX
+  PERCENT
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  REJECTED
+  EXPIRED
+}
+
+enum WithdrawalNetwork {
+  TRC20
+  ERC20
+}
+
+// -------------------- Bonuses (existing) --------------------
+
+enum BonusType {
+  DEPOSIT_15_NEWBIE
+  DAILY_RANDOM_10_5000
+}
+
+enum BonusClaimStatus {
+  ACTIVATED
+  CLAIMED
+  REJECTED
+}
+
+enum PromoDepositClaimStatus {
+  ACTIVATED
+  CLAIMED
+  EXPIRED
+  QUEUED
+}
+
+enum NotifyStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum BroadcastStatus {
+  DRAFT
+  QUEUED
+  RUNNING
+  COMPLETED
+  CANCELED
+  FAILED
+}
+
+// -------------------- Existing models --------------------
+
+model admin {
+  id                        BigInt  @id @default(autoincrement())
+  fake_bets_enabled_default Boolean @default(false)
+  fake_bets_sec             Int[]   @default([30, 120])
+
+  // Fake payouts (approved withdrawals) publishing to payments channel
+  fake_payouts_enabled_default Boolean @default(false)
+  fake_payouts_sec             Int[]   @default([120, 600])
+
+  news_channel_url     String?
+  games_channel_url    String?
+  payments_channel_url String?
+
+  /// Stored as percent (e.g. 5.00 means 5%).
+  percent_referrals Decimal @default(5.00) @db.Decimal(5, 2)
+
+  rules_text String @default("") @db.Text
+
+  min_max_bet Int[] @default([10, 10000])
+}
+
+model users {
+  id         BigInt   @id @default(autoincrement())
+  tg_id      BigInt   @unique
+  username   String?
+  first_name String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  is_banned  Boolean  @default(false)
+  is_admin   Boolean  @default(false)
+
+  referrer_id    BigInt?
+  ref_code       String  @unique
+  ref_mode       RefMode @default(PERCENT)
+  ref_fix_amount Decimal @default(0.15) @db.Decimal(18, 6)
+  ref_percent    Decimal @default(5.00) @db.Decimal(5, 2)
+
+  captcha_passed Boolean @default(false)
+
+  referrer  users?  @relation("user_referral", fields: [referrer_id], references: [id])
+  referrals users[] @relation("user_referral")
+
+  wallets wallets?
+
+  deposits    deposits[]
+  ledger      ledger[]
+  withdrawals withdrawals[]
+
+  referral_bonuses_referrer referral_bonuses[] @relation("rb_referrer")
+  referral_bonuses_referral referral_bonuses[] @relation("rb_referral")
+
+  bonus_claims         bonus_claims[]
+  notifications_outbox notifications_outbox[]
+  broadcast_tasks      broadcast_tasks[]
+
+  // ✅ promo deposit bonuses
+  promo_deposit_claims promo_deposit_claims[]
+
+  @@index([referrer_id])
+}
+
+model wallets {
+  user_id          BigInt   @id
+  balance_real     Decimal  @default(0) // available
+  balance_reserved Decimal  @default(0) // reserved
+  updated_at       DateTime @updatedAt
+
+  user users @relation(fields: [user_id], references: [id])
+}
+
+model deposits {
+  id         BigInt        @id @default(autoincrement())
+  user_id    BigInt
+  provider   Provider
+  invoice_id String
+  amount     Decimal       @db.Decimal(18, 6)
+  currency   String        @default("USDT")
+  status     DepositStatus @default(PENDING)
+  payload    Json?
+  created_at DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at DateTime      @default(now()) @db.Timestamptz(6)
+  paid_at    DateTime?     @db.Timestamptz(6)
+
+  user             users              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  referral_bonuses referral_bonuses[]
+
+  bonus_claims bonus_claims[]
+
+  // ✅ promo deposit claims can point to deposit
+  promo_deposit_claims promo_deposit_claims[]
+
+  @@unique([provider, invoice_id])
+  @@index([user_id])
+  @@index([status])
+}
+
+model ledger {
+  id         BigInt     @id @default(autoincrement())
+  user_id    BigInt
+  type       LedgerType
+  amount     Decimal    @db.Decimal(18, 6)
+  meta       Json?
+  created_at DateTime   @default(now()) @db.Timestamptz(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@index([type])
+}
+
+model withdrawals {
+  id           BigInt    @id @default(autoincrement())
+  user_id      BigInt
+  amount       Decimal
+  commission   Decimal
+  network      WithdrawalNetwork @default(TRC20)
+  address      String
+  comment      String?
+  status       String // enforced in code: PENDING/COMPLETED/REJECTED
+  created_at   DateTime  @default(now())
+  approved_at  DateTime?
+  processed_at DateTime?
+  rejected_at  DateTime?
+  fail_reason  String?
+
+  provider     String? // например "CRYPTBOT"
+  provider_ref String? // transfer_id / payout_id
+  idempotency  String? // ключ идемпотентности
+
+  user users @relation(fields: [user_id], references: [id])
+
+  @@index([status, created_at])
+  @@index([user_id, created_at])
+}
+
+model referral_bonuses {
+  id           BigInt   @id @default(autoincrement())
+  referrer_id  BigInt
+  referral_id  BigInt
+  deposit_id   BigInt?
+  mode         RefMode
+  rate         Decimal? @db.Decimal(18, 6)
+  fix_amount   Decimal? @db.Decimal(18, 6)
+  bonus_amount Decimal  @db.Decimal(18, 6)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  referrer users     @relation("rb_referrer", fields: [referrer_id], references: [id], onDelete: Cascade)
+  referral users     @relation("rb_referral", fields: [referral_id], references: [id], onDelete: Cascade)
+  deposit  deposits? @relation(fields: [deposit_id], references: [id], onDelete: SetNull)
+
+  @@unique([referrer_id, deposit_id])
+  @@index([referrer_id])
+  @@index([referral_id])
+}
+
+// -------------------- Bonuses models (existing) --------------------
+
+model bonuses {
+  id          BigInt    @id @default(autoincrement())
+  type        BonusType @unique
+  name        String
+  description String
+  is_active   Boolean   @default(true)
+  config      Json?
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+model bonus_claims {
+  id         BigInt    @id @default(autoincrement())
+  user_id    BigInt
+  bonus_type BonusType
+
+  day        DateTime? @db.Date
+  deposit_id BigInt?
+
+  amount     Decimal          @default(0) @db.Decimal(18, 6)
+  status     BonusClaimStatus @default(CLAIMED)
+  reason     String?
+  meta       Json?
+  created_at DateTime         @default(now()) @db.Timestamptz(6)
+
+  user    users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  deposit deposits? @relation(fields: [deposit_id], references: [id], onDelete: SetNull)
+
+  @@unique([bonus_type, user_id, day])
+  @@unique([bonus_type, deposit_id])
+  @@index([user_id, created_at])
+}
+
+// -------------------- ✅ Promo deposit bonuses (new) --------------------
+
+model promo_deposit_bonuses {
+  id         BigInt   @id @default(autoincrement())
+  code       String   @unique
+  name       String
+  percent    Decimal  @db.Decimal(10, 4)
+  expires_at DateTime @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  claims promo_deposit_claims[]
+
+  @@index([expires_at])
+}
+
+model promo_deposit_claims {
+  id       BigInt @id @default(autoincrement())
+  user_id  BigInt
+  promo_id BigInt
+
+  status     PromoDepositClaimStatus @default(ACTIVATED)
+  deposit_id BigInt?
+  amount     Decimal                 @default(0) @db.Decimal(18, 6)
+
+  activated_at DateTime  @default(now()) @db.Timestamptz(6)
+  used_at      DateTime? @db.Timestamptz(6)
+
+  user    users                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  promo   promo_deposit_bonuses @relation(fields: [promo_id], references: [id], onDelete: Cascade)
+  deposit deposits?             @relation(fields: [deposit_id], references: [id], onDelete: SetNull)
+
+  // ✅ один промокод можно активировать 1 раз на пользователя
+  @@unique([user_id, promo_id])
+  @@index([user_id, status, activated_at])
+  @@index([deposit_id])
+}
+
+// -------------------- Notifications / Broadcast (existing) --------------------
+
+model notifications_outbox {
+  id         BigInt       @id @default(autoincrement())
+  user_id    BigInt
+  type       String
+  payload    Json?
+  status     NotifyStatus @default(PENDING)
+  attempts   Int          @default(0)
+  created_at DateTime     @default(now()) @db.Timestamptz(6)
+  sent_at    DateTime?    @db.Timestamptz(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([status, created_at])
+}
+
+model broadcast_campaigns {
+  id          BigInt          @id @default(autoincrement())
+  bonus_type  BonusType
+  title       String
+  message     String
+  status      BroadcastStatus @default(DRAFT)
+  created_at  DateTime        @default(now()) @db.Timestamptz(6)
+  started_at  DateTime?       @db.Timestamptz(6)
+  finished_at DateTime?       @db.Timestamptz(6)
+
+  created_by BigInt?
+  tasks      broadcast_tasks[]
+
+  @@index([status, created_at])
+  @@index([bonus_type])
+}
+
+model broadcast_tasks {
+  id          BigInt       @id @default(autoincrement())
+  campaign_id BigInt
+  user_id     BigInt
+  status      NotifyStatus @default(PENDING)
+  attempts    Int          @default(0)
+  created_at  DateTime     @default(now()) @db.Timestamptz(6)
+  sent_at     DateTime?    @db.Timestamptz(6)
+
+  campaign broadcast_campaigns @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+  user     users               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([campaign_id, user_id])
+  @@index([status, created_at])
+}
