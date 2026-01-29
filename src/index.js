@@ -15,7 +15,7 @@ const { processDeposit } = require("./services/deposits");
 // Pending deposits are reconciled by polling provider (see checkPendingDeposits).
 const { initNotificationsWorker } = require("./services/notifications");
 
-const bot = new Bot(config.BOT_TOKEN);
+const bot = new Bot(config.BOT_TOKEN); 
 
 // init services that need bot instance
 initChannelBot(bot);

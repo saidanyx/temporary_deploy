@@ -158,7 +158,7 @@ async function showRules(ctx, edit = true) {
 
 async function showBets(ctx) {
   await render(ctx, {
-    photo: IMAGES.DICE,
+    photo: IMAGES.BET,
     caption: MESSAGES.SELECT_BET,
     keyboard: betsKeyboard("dice"),
     edit: true,

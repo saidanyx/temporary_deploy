@@ -116,9 +116,18 @@ async function showProfile(ctx, edit = true) {
   const refPercent = await adminService.getPercentReferrals();
   const bonusLine = `${Number(refPercent || 0).toFixed(2).replace(/\.00$/, "")}%`;
 
-  // username бота берём из контекста (а не из БД). В channel_post может не быть ctx.from.
-  const botUsername = ctx.me?.username || ctx.botInfo?.username;
-  const refLink = botUsername ? `https://t.me/${botUsername}?start=${stats.ref_link}` : stats.ref_link;
+  // username бота — из контекста
+  const botUsername = ctx.me?.username || ctx.botInfo?.username || null;
+
+  // raw URL (НЕ экранируем в href)
+  const refUrl = botUsername
+    ? `https://t.me/${botUsername}?start=${stats.ref_link}`
+    : stats.ref_link;
+
+  // Markdown-текст: показываем кликабельной ссылкой, чтобы "_" не ломали URL
+  const refLink = botUsername
+    ? `[${escapeMarkdown(refUrl)}](${refUrl})`
+    : escapeMarkdown(refUrl);
 
   const id = user.tg_id.toString();
   const registration = user.created_at.toISOString().split("T")[0];
@@ -233,12 +242,27 @@ async function showReferralStats(ctx, edit = true) {
   const refPercent = await adminService.getPercentReferrals();
   const bonusLine = `${Number(refPercent || 0).toFixed(2).replace(/\.00$/, "")}%`;
 
-  const botUsername = ctx.me?.username || ctx.botInfo?.username;
-  const refLink = botUsername ? `https://t.me/${botUsername}?start=${stats.ref_link}` : stats.ref_link;
+  const botUsername = ctx.me?.username || ctx.botInfo?.username || null;
+
+  const refUrl = botUsername
+    ? `https://t.me/${botUsername}?start=${stats.ref_link}`
+    : stats.ref_link;
+
+  const refLink = botUsername
+    ? `[${escapeMarkdown(refUrl)}](${refUrl})`
+    : escapeMarkdown(refUrl);
 
   await render(ctx, {
     photo: IMAGES.PROFILE,
-    caption: `👥 РЕФЕРАЛЬНАЯ ПРОГРАММА\n\n🔗 Твоя ссылка:\n${refLink}\n\n🎁 Бонус: ${bonusLine} с проигрыша рефералов\n\n👤 Рефералов: ${stats.referral_count}\n💰 Заработано: ${Number(stats.total_earnings).toFixed(2)} ₽`,
+    caption: `👥 РЕФЕРАЛЬНАЯ ПРОГРАММА
+
+🔗 Твоя ссылка:
+${refLink}
+
+🎁 Бонус: ${bonusLine} с проигрыша рефералов
+
+👤 Рефералов: ${stats.referral_count}
+💰 Заработано: ${Number(stats.total_earnings).toFixed(2)} ₽`,
     edit,
   });
 }
