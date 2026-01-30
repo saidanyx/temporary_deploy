@@ -1,6 +1,17 @@
 const axios = require('axios');
 const config = require('../config');
 
+function normalizeBotUsername(raw) {
+  // Accept: "@name", "name", "https://t.me/name" and normalize to "name"
+  if (!raw) return "";
+  let s = String(raw).trim();
+  s = s.replace(/^https?:\/\/t\.me\//i, "");
+  s = s.replace(/^@/, "");
+  // remove query string / path
+  s = s.split("?")[0].split("/")[0];
+  return s;
+}
+
 class CryptoBot {
   constructor() {
     this.apiUrl = 'https://pay.crypt.bot/api';
@@ -126,7 +137,7 @@ class CryptoBot {
         description: `Пополнение баланса на ${amount} ₽`,
         hidden_message: JSON.stringify(payloadMeta, (key, value) => typeof value === 'bigint' ? value.toString() : value),
         paid_btn_name: 'openBot',
-        paid_btn_url: `https://t.me/${process.env.BOT_USERNAME || 'your_bot'}`,
+        paid_btn_url: `https://t.me/${normalizeBotUsername(config.BOT_USERNAME)}`,
         allow_comments: false,
         allow_anonymous: false,
         expires_in: 3600

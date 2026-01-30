@@ -10,6 +10,9 @@ function must(name) {
 module.exports = {
   // Variables that are in .env - read ONLY from env
   BOT_TOKEN: must("BOT_TOKEN"),
+  // Telegram bot username (without @). Used for CryptoBot "Open bot" button after payment.
+  // Make it required to avoid sending users to the wrong bot.
+  BOT_USERNAME: must("BOT_USERNAME"),
   DATABASE_URL: must("DATABASE_URL"),
   CRYPTOBOT_API_TOKEN: must("CRYPTOBOT_API_TOKEN"),
 

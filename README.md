@@ -24,7 +24,8 @@ cp .env.example .env
 
 Заполните `.env`:
 - `BOT_TOKEN` — токен Telegram бота
-- `BOT_USERNAME` — (опционально) username бота (для красивой реф. ссылки)
+- `BOT_USERNAME` — username бота **без @** (например: `vegas_vibe_bot`).
+  Используется для кнопки "Open bot" в CryptoBot после оплаты — важно, чтобы не уводило в другой бот.
 - `DATABASE_URL` — строка подключения к Postgres
 - `CRYPTOBOT_API_TOKEN` — API token CryptoBot
 - `ADMIN_IDS` — Telegram user id админов через запятую
